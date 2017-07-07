@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+
+#   __  __ ___ _  _ ___ 
+#  |  \/  |_ _| \| | __|
+#  | |\/| || || .` | _| 
+#  |_|  |_|___|_|\_|___|
+
+CONFIG_ROOT=~/.mine
+STAGE_DIR="/usr/local/var/mine"
+LOG_FILE_PATH=$(mktemp)
+TEMP_DIR=$(mktemp -d)
+
+if [ "$1" == "edit" ]; then
+  vim $CONFIG_ROOT
+  exit 0
+fi
+
+mkdir -p $STAGE_DIR
+
+# execution code below
+# --------8<----------
+
+if [ ! -d "$CONFIG_ROOT" ]; then
+  echo $CONFIG_ROOT does not exist
+  echo for help please visit http://example.com...
+  exit 0
+fi
+
+rm -f "$LOG_FILE_PATH"
+
+script_paths=$(find "$CONFIG_ROOT" -maxdepth 2 -mindepth 2 -type f -perm +ug+x)
+for script_path in $script_paths; do
+  local_script_path=$(echo "$script_path" | sed "s#$CONFIG_ROOT\/##g")
+  echo -n "$local_script_path"
+  if $script_path >> "$LOG_FILE_PATH" 2>&1; then
+    echo -e " \033[00;32msuccess\033[0m"
+  else
+    echo -e " \033[0;31merror\033[0m"
+  fi
+done
+
+config_paths=$(find "$CONFIG_ROOT" -maxdepth 2 -mindepth 2 -type f ! -name "*.sed" ! -perm +ug+x)
+for config_path in $config_paths; do
+  local_config_path=$(echo "$config_path" | sed "s#$CONFIG_ROOT\/##g")
+
+  temp_file=$(mktemp)
+
+  if [ -f "$config_path.sed" ]; then
+    sed -f "$config_path.sed" "$config_path" > $temp_file
+  else
+    cp "$config_path" $temp_file
+  fi
+
+  if [ -f "$TEMP_DIR/$(basename $config_path)" ]; then
+    echo cat $temp_file > "$TEMP_DIR/$(basename $config_path)"
+  else
+    cp $temp_file "$TEMP_DIR/$(basename $config_path)"
+  fi
+
+  rm $temp_file
+done
+
+link_file_paths=$(find -E "$TEMP_DIR" -maxdepth 1 -mindepth 1 -regex '.*[0-9]_.*' | sort)
+for link_file_path in $link_file_paths; do
+  link_file_name_simplified=$(basename "$link_file_path" | sed "s/^[0-9]_//")
+  cat "$link_file_path" >> "$TEMP_DIR/$link_file_name_simplified"
+  rm "$link_file_path"
+done
+
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
+
+# move final files to stage
+final_file_paths=$(find "$TEMP_DIR" -type f)
+for final_file_path in $final_file_paths; do
+  cp $final_file_path $STAGE_DIR
+done
+
+# stage_file_paths=$(ls -A "$STAGE_DIR")
+stage_file_paths=$(find "$STAGE_DIR" -type f)
+for stage_file_path in $stage_file_paths; do
+  ln -sf "$stage_file_path" ~
+  echo -e "$(basename ${stage_file_path}) \033[0;33mlinked\033[0;39m"
+done
+
+rm -rf "$TEMP_DIR"
+
+echo "log: $LOG_FILE_PATH"
